@@ -6,7 +6,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Cela prendra automatiquement le nom de ton repo (ex: Q240297/ue19-lab-05)
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -15,6 +14,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write # Permet d'écrire les rapports de sécurité si besoin
 
     steps:
       - name: Checkout repository
@@ -26,13 +26,34 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
- 
-      # Cette étape convertit ton nom d'utilisateur en minuscules pour éviter les bugs.
+
       - name: Lowercase Image Name
         run: |
           echo "IMAGE_LOWER=${IMAGE_NAME,,}" >>${GITHUB_ENV}
 
-      - name: Build and push Docker image
+      # ÉTAPE 1 : On construit l'image localement (load: true) pour que Trivy puisse la voir
+      # On ne push pas encore (push: false)
+      - name: Build and export to Docker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ghcr.io/${{ env.IMAGE_LOWER }}:latest
+
+      # ÉTAPE 2 : Le Scanner Trivy (Basé sur ton lien)
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ghcr.io/${{ env.IMAGE_LOWER }}:latest'
+          format: 'table'      # Affiche un tableau dans les logs
+          exit-code: '0'       # IMPORTANT : On met 0 pour ne pas bloquer le devoir même si des failles sont trouvées
+          ignore-unfixed: true # Ignore les failles qui n'ont pas encore de correctif
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # ÉTAPE 3 : Si tout va bien, on envoie l'image (Push)
+      - name: Push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
